@@ -48,6 +48,9 @@
       if (state.panelMode === 'codex2api') {
         return 'codex2api';
       }
+      if (state.panelMode === 'cockpit-tools') {
+        return 'cockpit-tools';
+      }
       return 'cpa';
     }
 
@@ -58,6 +61,9 @@
       }
       if (mode === 'codex2api') {
         return 'Codex2API';
+      }
+      if (mode === 'cockpit-tools') {
+        return 'Cockpit Tools';
       }
       return 'CPA';
     }

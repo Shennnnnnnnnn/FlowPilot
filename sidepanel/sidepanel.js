@@ -3747,7 +3747,7 @@ function collectSettingsPayload() {
     ? normalizePanelMode
     : ((value = '') => {
       const normalized = String(value || '').trim().toLowerCase();
-      return normalized === 'sub2api' || normalized === 'codex2api' ? normalized : 'cpa';
+      return normalized === 'sub2api' || normalized === 'codex2api' || normalized === 'cockpit-tools' ? normalized : 'cpa';
     });
   const rawPanelMode = normalizePanelModeSafe(selectPanelMode?.value || latestState?.panelMode || 'cpa');
   const rawPlusModeEnabled = typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled
@@ -7753,7 +7753,7 @@ function setElementReuseLockedState(element, locked, title = PHONE_SIGNUP_REUSE_
 
 function normalizePanelMode(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'sub2api' || normalized === 'codex2api') {
+  if (normalized === 'sub2api' || normalized === 'codex2api' || normalized === 'cockpit-tools') {
     return normalized;
   }
   return 'cpa';
@@ -11330,7 +11330,8 @@ function updatePanelModeUI() {
   }
   const useSub2Api = panelMode === 'sub2api';
   const useCodex2Api = panelMode === 'codex2api';
-  const useCpa = !useSub2Api && !useCodex2Api;
+  const useCockpitTools = panelMode === 'cockpit-tools';
+  const useCpa = !useSub2Api && !useCodex2Api && !useCockpitTools;
   rowVpsUrl.style.display = useCpa ? '' : 'none';
   rowVpsPassword.style.display = useCpa ? '' : 'none';
   rowLocalCpaStep9Mode.style.display = useCpa ? '' : 'none';
@@ -11347,7 +11348,7 @@ function updatePanelModeUI() {
   if (step9Btn) {
     step9Btn.textContent = useSub2Api
       ? 'SUB2API 回调验证'
-      : (useCodex2Api ? 'Codex2API 回调验证' : 'CPA 回调验证');
+      : (useCodex2Api ? 'Codex2API 回调验证' : (useCockpitTools ? 'Cockpit Tools 回调验证' : 'CPA 回调验证'));
   }
 }
 

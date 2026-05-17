@@ -71,6 +71,26 @@ test('flow capability registry defaults unknown flows to minimal non-phone capab
   assert.deepEqual(capabilityState.supportedPanelModes, []);
 });
 
+test('flow capability registry includes Cockpit Tools as an OpenAI binding source', () => {
+  const api = loadApi();
+  const registry = api.createFlowCapabilityRegistry();
+
+  const capabilityState = registry.resolveSidepanelCapabilities({
+    state: {
+      activeFlowId: 'openai',
+      panelMode: 'cockpit-tools',
+      phoneVerificationEnabled: true,
+      plusModeEnabled: false,
+      contributionMode: false,
+      signupMethod: 'email',
+    },
+  });
+
+  assert.equal(capabilityState.panelMode, 'cockpit-tools');
+  assert.equal(capabilityState.canUseSelectedPanelMode, true);
+  assert.ok(capabilityState.supportedPanelModes.includes('cockpit-tools'));
+});
+
 test('flow capability registry exposes shared auto-run validation for phone locks and panel support', () => {
   const api = loadApi();
   const registry = api.createFlowCapabilityRegistry({

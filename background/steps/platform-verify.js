@@ -97,6 +97,18 @@
       return details || `Codex2API 请求失败（HTTP ${responseStatus}）。`;
     }
 
+    function getCockpitToolsErrorMessage(payload, responseStatus = 500) {
+      const details = [
+        payload?.error,
+        payload?.message,
+        payload?.detail,
+        payload?.reason,
+      ]
+        .map((value) => normalizeString(value))
+        .find(Boolean);
+      return details || `Cockpit Tools 本地桥接请求失败（HTTP ${responseStatus}）。`;
+    }
+
     function deriveCpaManagementOrigin(vpsUrl) {
       const normalizedUrl = normalizeString(vpsUrl);
       if (!normalizedUrl) {
@@ -227,7 +239,48 @@
       }
     }
 
+    async function fetchCockpitToolsJson(path, options = {}) {
+      const controller = new AbortController();
+      const timeoutMs = Math.max(1000, Math.floor(Number(options.timeoutMs) || 30000));
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await fetch(`http://127.0.0.1:1466${path}`, {
+          method: options.method || 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+          signal: controller.signal,
+        });
+
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch {
+          payload = {};
+        }
+
+        if (!response.ok) {
+          throw new Error(getCockpitToolsErrorMessage(payload, response.status));
+        }
+
+        return payload;
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          throw new Error('Cockpit Tools 本地桥接请求超时，请确认应用已启动。');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
     async function executeStep10(state) {
+      if (getPanelMode(state) === 'cockpit-tools') {
+        return executeCockpitToolsStep10(state);
+      }
       if (getPanelMode(state) === 'codex2api') {
         return executeCodex2ApiStep10(state);
       }
@@ -342,6 +395,45 @@
       });
     }
 
+    async function executeCockpitToolsStep10(state) {
+      const platformVerifyStep = resolvePlatformVerifyStep(state);
+      const confirmOauthStep = resolveConfirmOauthStep(platformVerifyStep);
+      const authLoginStep = resolveAuthLoginStep(platformVerifyStep);
+      if (state.localhostUrl && !isLocalhostOAuthCallbackUrl(state.localhostUrl)) {
+        throw new Error(`步骤 ${confirmOauthStep} 捕获到的 localhost OAuth 回调地址无效，请重新执行步骤 ${confirmOauthStep}。`);
+      }
+      if (!state.localhostUrl) {
+        throw new Error(`缺少 localhost 回调地址，请先完成步骤 ${confirmOauthStep}。`);
+      }
+      if (!state.cockpitToolsLoginId) {
+        throw new Error(`缺少 Cockpit Tools 登录会话信息，请重新执行步骤 ${authLoginStep}。`);
+      }
+
+      const callback = parseLocalhostCallback(state.localhostUrl, platformVerifyStep);
+      const expectedState = normalizeString(state.cockpitToolsOAuthState);
+      if (expectedState && expectedState !== callback.state) {
+        throw new Error(`Cockpit Tools 回调 state 与当前授权会话不匹配，请重新执行步骤 ${authLoginStep}。`);
+      }
+
+      await addStepLog(platformVerifyStep, '正在向 Cockpit Tools 提交回调并保存账号...');
+      const result = await fetchCockpitToolsJson('/api/codex/oauth/callback', {
+        method: 'POST',
+        body: {
+          login_id: state.cockpitToolsLoginId,
+          callback_url: callback.url,
+        },
+      });
+
+      const accountEmail = normalizeString(result?.account?.email || result?.email);
+      const verifiedStatus = normalizeString(result?.message)
+        || (accountEmail ? `Cockpit Tools 已保存 Codex OAuth 账号 ${accountEmail}` : 'Cockpit Tools 已保存 Codex OAuth 账号');
+      await addStepLog(platformVerifyStep, verifiedStatus, 'ok');
+      await completeNodeFromBackground(state?.nodeId || 'platform-verify', {
+        localhostUrl: callback.url,
+        verifiedStatus,
+      });
+    }
+
     async function executeSub2ApiStep10(state) {
       const platformVerifyStep = resolvePlatformVerifyStep(state);
       const visibleStep = platformVerifyStep;
@@ -404,6 +496,7 @@
     return {
       executeCpaStep10,
       executeCodex2ApiStep10,
+      executeCockpitToolsStep10,
       executeStep10,
       executeSub2ApiStep10,
     };

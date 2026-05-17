@@ -19,6 +19,8 @@
       SUB2API_STEP1_RESPONSE_TIMEOUT_MS,
     } = deps;
 
+    const COCKPIT_TOOLS_BRIDGE_ORIGIN = 'http://127.0.0.1:1466';
+
     let sub2ApiApi = null;
 
     function getSub2ApiApi() {
@@ -61,6 +63,19 @@
         .map((value) => String(value || '').trim())
         .find(Boolean);
       return message || `Codex2API 请求失败（HTTP ${responseStatus}）。`;
+    }
+
+    function getCockpitToolsErrorMessage(payload, responseStatus = 500) {
+      const candidates = [
+        payload?.error,
+        payload?.message,
+        payload?.detail,
+        payload?.reason,
+      ];
+      const message = candidates
+        .map((value) => String(value || '').trim())
+        .find(Boolean);
+      return message || `Cockpit Tools 本地桥接请求失败（HTTP ${responseStatus}）。`;
     }
 
     function deriveCpaManagementOrigin(vpsUrl) {
@@ -174,7 +189,48 @@
       }
     }
 
+    async function fetchCockpitToolsJson(path, options = {}) {
+      const timeoutMs = Math.max(1000, Math.floor(Number(options.timeoutMs) || 30000));
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await fetch(`${COCKPIT_TOOLS_BRIDGE_ORIGIN}${path}`, {
+          method: options.method || 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+          signal: controller.signal,
+        });
+
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch {
+          payload = {};
+        }
+
+        if (!response.ok) {
+          throw new Error(getCockpitToolsErrorMessage(payload, response.status));
+        }
+
+        return payload;
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          throw new Error('Cockpit Tools 本地桥接请求超时，请确认应用已启动。');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
     async function requestOAuthUrlFromPanel(state, options = {}) {
+      if (getPanelMode(state) === 'cockpit-tools') {
+        return requestCockpitToolsOAuthUrl(state, options);
+      }
       if (getPanelMode(state) === 'codex2api') {
         return requestCodex2ApiOAuthUrl(state, options);
       }
@@ -230,6 +286,53 @@
         oauthUrl,
         cpaOAuthState: oauthState || null,
         cpaManagementOrigin: origin,
+      };
+    }
+
+    async function requestCockpitToolsOAuthUrl(_state, options = {}) {
+      const { logLabel = 'OAuth 刷新' } = options;
+      await addLog(`${logLabel}：正在通过 Cockpit Tools 本地桥接生成 OAuth 授权链接...`);
+
+      const result = await fetchCockpitToolsJson('/api/codex/oauth/start', {
+        method: 'POST',
+        body: {},
+      });
+
+      const oauthUrl = String(
+        result?.authUrl
+        || result?.auth_url
+        || result?.url
+        || result?.data?.authUrl
+        || result?.data?.auth_url
+        || result?.data?.url
+        || ''
+      ).trim();
+      const loginId = String(
+        result?.loginId
+        || result?.login_id
+        || result?.data?.loginId
+        || result?.data?.login_id
+        || ''
+      ).trim();
+      const oauthState = String(
+        result?.state
+        || result?.oauthState
+        || result?.oauth_state
+        || result?.data?.state
+        || result?.data?.oauthState
+        || result?.data?.oauth_state
+        || ''
+      ).trim()
+        || extractStateFromAuthUrl(oauthUrl);
+
+      if (!oauthUrl || !loginId) {
+        throw new Error('Cockpit Tools 未返回有效的 authUrl 或 loginId。');
+      }
+
+      return {
+        oauthUrl,
+        cockpitToolsLoginId: loginId,
+        cockpitToolsOAuthState: oauthState || null,
       };
     }
 
@@ -293,6 +396,7 @@
     return {
       requestOAuthUrlFromPanel,
       requestCodex2ApiOAuthUrl,
+      requestCockpitToolsOAuthUrl,
       requestCpaOAuthUrl,
       requestSub2ApiOAuthUrl,
     };

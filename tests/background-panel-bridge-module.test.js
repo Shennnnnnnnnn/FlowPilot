@@ -86,6 +86,55 @@ test('panel bridge can request codex2api oauth url via protocol', async () => {
   }
 });
 
+test('panel bridge can request Cockpit Tools oauth url via local bridge', async () => {
+  const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, 'http://127.0.0.1:1466/api/codex/oauth/start');
+    assert.equal(options.method, 'POST');
+    return {
+      ok: true,
+      json: async () => ({
+        authUrl: 'https://auth.openai.com/authorize?state=cockpit-state',
+        loginId: 'login-123',
+      }),
+    };
+  };
+  globalThis.chrome = {
+    tabs: {
+      create: async () => {
+        throw new Error('Cockpit Tools deep link should not be opened when local bridge responds');
+      },
+    },
+  };
+
+  try {
+    const api = new Function('self', `${source}; return self.MultiPageBackgroundPanelBridge;`)({});
+    const bridge = api.createPanelBridge({
+      addLog: async () => {},
+      getPanelMode: () => 'cockpit-tools',
+      normalizeCodex2ApiUrl: (value) => value,
+      normalizeSub2ApiUrl: (value) => value,
+      DEFAULT_SUB2API_GROUP_NAME: 'codex',
+      SUB2API_STEP1_RESPONSE_TIMEOUT_MS: 90000,
+    });
+
+    const result = await bridge.requestOAuthUrlFromPanel({
+      panelMode: 'cockpit-tools',
+    }, { logLabel: '步骤 7' });
+
+    assert.deepStrictEqual(result, {
+      oauthUrl: 'https://auth.openai.com/authorize?state=cockpit-state',
+      cockpitToolsLoginId: 'login-123',
+      cockpitToolsOAuthState: 'cockpit-state',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test('panel bridge can request cpa oauth url via management api', async () => {
   const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
   const originalFetch = globalThis.fetch;

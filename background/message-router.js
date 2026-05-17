@@ -608,6 +608,8 @@
         if (payload.cpaManagementOrigin !== undefined) updates.cpaManagementOrigin = payload.cpaManagementOrigin || null;
         if (payload.codex2apiSessionId !== undefined) updates.codex2apiSessionId = payload.codex2apiSessionId || null;
         if (payload.codex2apiOAuthState !== undefined) updates.codex2apiOAuthState = payload.codex2apiOAuthState || null;
+        if (payload.cockpitToolsLoginId !== undefined) updates.cockpitToolsLoginId = payload.cockpitToolsLoginId || null;
+        if (payload.cockpitToolsOAuthState !== undefined) updates.cockpitToolsOAuthState = payload.cockpitToolsOAuthState || null;
         if (Object.keys(updates).length) {
           await setState(updates);
         }
@@ -728,6 +730,8 @@
           if (payload.sub2apiProxyId !== undefined) updates.sub2apiProxyId = payload.sub2apiProxyId || null;
           if (payload.codex2apiSessionId !== undefined) updates.codex2apiSessionId = payload.codex2apiSessionId || null;
           if (payload.codex2apiOAuthState !== undefined) updates.codex2apiOAuthState = payload.codex2apiOAuthState || null;
+          if (payload.cockpitToolsLoginId !== undefined) updates.cockpitToolsLoginId = payload.cockpitToolsLoginId || null;
+          if (payload.cockpitToolsOAuthState !== undefined) updates.cockpitToolsOAuthState = payload.cockpitToolsOAuthState || null;
           if (Object.keys(updates).length) {
             await setState(updates);
           }

@@ -5,7 +5,7 @@
   const DEFAULT_PANEL_MODE = 'cpa';
   const SIGNUP_METHOD_EMAIL = 'email';
   const SIGNUP_METHOD_PHONE = 'phone';
-  const VALID_PANEL_MODES = Object.freeze(['cpa', 'sub2api', 'codex2api']);
+  const VALID_PANEL_MODES = Object.freeze(['cpa', 'sub2api', 'codex2api', 'cockpit-tools']);
 
   const DEFAULT_FLOW_CAPABILITIES = Object.freeze({
     supportsEmailSignup: true,
@@ -27,7 +27,7 @@
       supportsPhoneVerificationSettings: true,
       supportsPlusMode: true,
       supportsContributionMode: true,
-      supportsPlatformBinding: ['cpa', 'sub2api', 'codex2api'],
+      supportsPlatformBinding: ['cpa', 'sub2api', 'codex2api', 'cockpit-tools'],
       supportsLuckmail: true,
       supportsOauthTimeoutBudget: true,
       stepDefinitionMode: 'openai-dynamic',
@@ -57,6 +57,10 @@
       requiresPhoneSignupWarning: false,
     }),
     codex2api: Object.freeze({
+      supportsPhoneSignup: true,
+      requiresPhoneSignupWarning: false,
+    }),
+    'cockpit-tools': Object.freeze({
       supportsPhoneSignup: true,
       requiresPhoneSignupWarning: false,
     }),
@@ -110,6 +114,9 @@
     }
     if (normalized === 'codex2api') {
       return 'Codex2API';
+    }
+    if (normalized === 'cockpit-tools') {
+      return 'Cockpit Tools';
     }
     return 'CPA';
   }

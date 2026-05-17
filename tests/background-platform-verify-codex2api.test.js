@@ -80,6 +80,78 @@ test('platform verify module supports codex2api protocol callback exchange', asy
   }
 });
 
+test('platform verify module submits callback to Cockpit Tools local bridge', async () => {
+  const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, 'http://127.0.0.1:1466/api/codex/oauth/callback');
+    assert.equal(options.method, 'POST');
+    assert.deepStrictEqual(JSON.parse(options.body), {
+      login_id: 'login-123',
+      callback_url: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        message: 'Cockpit Tools 已保存 Codex OAuth 账号 flow@example.com',
+        account: { id: 'acc-1', email: 'flow@example.com' },
+      }),
+    };
+  };
+
+  try {
+    const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
+    const completed = [];
+    const logs = [];
+    const executor = api.createStep10Executor({
+      addLog: async (message, level = 'info', options = {}) => {
+        logs.push({ message, level, step: options.step, stepKey: options.stepKey });
+      },
+      chrome: {},
+      closeConflictingTabsForSource: async () => {},
+      completeNodeFromBackground: async (step, payload) => {
+        completed.push({ step, payload });
+      },
+      ensureContentScriptReadyOnTab: async () => {},
+      getPanelMode: () => 'cockpit-tools',
+      getTabId: async () => 0,
+      isLocalhostOAuthCallbackUrl: (value) => String(value || '').includes('/auth/callback?code='),
+      isTabAlive: async () => false,
+      normalizeCodex2ApiUrl: (value) => value,
+      normalizeSub2ApiUrl: (value) => value,
+      rememberSourceLastUrl: async () => {},
+      reuseOrCreateTab: async () => 0,
+      sendToContentScript: async () => ({}),
+      sendToContentScriptResilient: async () => ({}),
+      shouldBypassStep9ForLocalCpa: () => false,
+      SUB2API_STEP9_RESPONSE_TIMEOUT_MS: 120000,
+    });
+
+    await executor.executeStep10({
+      panelMode: 'cockpit-tools',
+      localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+      cockpitToolsLoginId: 'login-123',
+      cockpitToolsOAuthState: 'oauth-state',
+    });
+
+    assert.deepStrictEqual(logs, [
+      { message: '正在向 Cockpit Tools 提交回调并保存账号...', level: 'info', step: 10, stepKey: 'platform-verify' },
+      { message: 'Cockpit Tools 已保存 Codex OAuth 账号 flow@example.com', level: 'ok', step: 10, stepKey: 'platform-verify' },
+    ]);
+    assert.deepStrictEqual(completed, [
+      {
+        step: 'platform-verify',
+        payload: {
+          localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+          verifiedStatus: 'Cockpit Tools 已保存 Codex OAuth 账号 flow@example.com',
+        },
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('platform verify retries transient SUB2API oauth/token exchange errors before succeeding', async () => {
   const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
   const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});

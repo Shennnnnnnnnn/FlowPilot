@@ -72,6 +72,21 @@ test('navigation utils support codex2api mode and url normalization', () => {
   assert.equal(utils.getPanelModeLabel('codex2api'), 'Codex2API');
 });
 
+test('navigation utils support Cockpit Tools panel mode', () => {
+  const source = fs.readFileSync('background/navigation-utils.js', 'utf8');
+  const globalScope = {};
+
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundNavigationUtils;`)(globalScope);
+  const utils = api.createNavigationUtils({
+    DEFAULT_CODEX2API_URL: 'http://localhost:8080/admin/accounts',
+    DEFAULT_SUB2API_URL: 'https://sub.example.com/admin/accounts',
+    normalizeLocalCpaStep9Mode: (value) => value,
+  });
+
+  assert.equal(utils.getPanelMode({ panelMode: 'cockpit-tools' }), 'cockpit-tools');
+  assert.equal(utils.getPanelModeLabel('cockpit-tools'), 'Cockpit Tools');
+});
+
 test('navigation utils leaves SUB2API url empty when no default is configured', () => {
   const source = fs.readFileSync('background/navigation-utils.js', 'utf8');
   const globalScope = {};

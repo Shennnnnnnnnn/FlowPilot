@@ -1073,6 +1073,8 @@ const DEFAULT_STATE = {
   sub2apiProxyId: null, // SUB2API 本轮使用的代理 ID。
   codex2apiSessionId: null, // Codex2API OAuth 会话 ID。
   codex2apiOAuthState: null, // Codex2API OAuth state。
+  cockpitToolsLoginId: null, // Cockpit Tools OAuth 登录会话 ID。
+  cockpitToolsOAuthState: null, // Cockpit Tools OAuth state。
   plusCheckoutTabId: null, // Plus checkout / PayPal 标签页 ID。
   automationWindowId: null, // 当前任务锁定的浏览器窗口 ID，避免新标签页跑到其它窗口。
   plusCheckoutUrl: null, // Plus checkout 运行时短链，不写入持久配置。
@@ -2350,6 +2352,9 @@ function normalizePanelMode(value = '') {
   }
   if (normalized === 'codex2api') {
     return 'codex2api';
+  }
+  if (normalized === 'cockpit-tools') {
+    return 'cockpit-tools';
   }
   return 'cpa';
 }
@@ -7634,6 +7639,9 @@ function getPanelMode(state = {}) {
   if (state.panelMode === 'codex2api') {
     return 'codex2api';
   }
+  if (state.panelMode === 'cockpit-tools') {
+    return 'cockpit-tools';
+  }
   return 'cpa';
 }
 
@@ -7647,6 +7655,9 @@ function getPanelModeLabel(modeOrState) {
   }
   if (mode === 'codex2api') {
     return 'Codex2API';
+  }
+  if (mode === 'cockpit-tools') {
+    return 'Cockpit Tools';
   }
   return 'CPA';
 }
@@ -8600,6 +8611,8 @@ function getDownstreamStateResets(step, state = {}) {
       sub2apiProxyId: null,
       codex2apiSessionId: null,
       codex2apiOAuthState: null,
+      cockpitToolsLoginId: null,
+      cockpitToolsOAuthState: null,
       flowStartTime: null,
       password: null,
       lastEmailTimestamp: null,
@@ -9663,6 +9676,8 @@ async function handleStepData(step, payload) {
       if (payload.cpaManagementOrigin !== undefined) updates.cpaManagementOrigin = payload.cpaManagementOrigin || null;
       if (payload.codex2apiSessionId !== undefined) updates.codex2apiSessionId = payload.codex2apiSessionId || null;
       if (payload.codex2apiOAuthState !== undefined) updates.codex2apiOAuthState = payload.codex2apiOAuthState || null;
+      if (payload.cockpitToolsLoginId !== undefined) updates.cockpitToolsLoginId = payload.cockpitToolsLoginId || null;
+      if (payload.cockpitToolsOAuthState !== undefined) updates.cockpitToolsOAuthState = payload.cockpitToolsOAuthState || null;
       if (payload.sub2apiGroupIds !== undefined) updates.sub2apiGroupIds = Array.isArray(payload.sub2apiGroupIds)
         ? payload.sub2apiGroupIds
         : [];
