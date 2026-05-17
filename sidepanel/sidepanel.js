@@ -2276,6 +2276,21 @@ function getNodeStatuses(state = latestState) {
   return Object.fromEntries(NODE_IDS.map((nodeId) => [nodeId, merged[nodeId] || 'pending']));
 }
 
+function getTemporarilyDisabledNodeIds(state = latestState) {
+  const activeNodeIds = new Set(NODE_IDS);
+  const source = Array.isArray(state?.disabledNodeIds) ? state.disabledNodeIds : [];
+  return Array.from(new Set(
+    source
+      .map((nodeId) => String(nodeId || '').trim())
+      .filter((nodeId) => nodeId && activeNodeIds.has(nodeId))
+  ));
+}
+
+function isNodeTemporarilyDisabled(nodeId, state = latestState) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  return Boolean(normalizedNodeId) && getTemporarilyDisabledNodeIds(state).includes(normalizedNodeId);
+}
+
 function getStepStatuses(state = latestState) {
   const merged = { ...STEP_DEFAULT_STATUSES };
   if (typeof getNodeStatuses === 'function') {
@@ -9005,6 +9020,24 @@ function initializeManualStepActions() {
     const actions = document.createElement('div');
     actions.className = 'step-actions';
 
+    const disableBtn = document.createElement('button');
+    disableBtn.type = 'button';
+    disableBtn.className = 'step-disable-btn';
+    disableBtn.dataset.step = String(step);
+    disableBtn.dataset.nodeId = nodeId;
+    disableBtn.title = '临时禁用此节点';
+    disableBtn.setAttribute('aria-label', `临时禁用节点 ${nodeId || step}`);
+    disableBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="5.7" y1="5.7" x2="18.3" y2="18.3"/></svg>';
+    disableBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        const targetNodeId = nodeId || getNodeIdByStepForCurrentMode(step);
+        await handleTemporaryDisableNode(targetNodeId, !isNodeTemporarilyDisabled(targetNodeId));
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
     const manualBtn = document.createElement('button');
     manualBtn.type = 'button';
     manualBtn.className = 'step-manual-btn';
@@ -9023,6 +9056,7 @@ function initializeManualStepActions() {
     });
 
     statusEl.parentNode.replaceChild(actions, statusEl);
+    actions.appendChild(disableBtn);
     actions.appendChild(manualBtn);
     actions.appendChild(statusEl);
   });
@@ -11357,7 +11391,9 @@ function renderSingleNodeStatus(nodeId, status) {
 
   if (statusEl) statusEl.textContent = STATUS_ICONS[normalizedStatus] || '';
   if (row) {
-    row.className = `step-row ${normalizedStatus}`;
+    const temporarilyDisabled = typeof isNodeTemporarilyDisabled === 'function'
+      && isNodeTemporarilyDisabled(normalizedNodeId, latestState);
+    row.className = `step-row ${normalizedStatus}${temporarilyDisabled ? ' temporarily-disabled' : ''}`;
   }
 }
 
@@ -11418,18 +11454,36 @@ function updateButtonStates() {
     const btn = document.querySelector(`.step-btn[data-node-id="${escapeCssValue(nodeId)}"]`);
     if (!btn) continue;
 
-    if (anyRunning || autoLocked || autoScheduled) {
+    if (isNodeTemporarilyDisabled(nodeId)) {
       btn.disabled = true;
+      btn.title = '节点已临时禁用';
+    } else if (anyRunning || autoLocked || autoScheduled) {
+      btn.disabled = true;
+      btn.title = '';
     } else if (NODE_IDS.indexOf(nodeId) === 0) {
       btn.disabled = false;
+      btn.title = '';
     } else {
       const currentIndex = NODE_IDS.indexOf(nodeId);
       const prevNodeId = currentIndex > 0 ? NODE_IDS[currentIndex - 1] : null;
       const prevStatus = prevNodeId === null ? 'completed' : statuses[prevNodeId];
       const currentStatus = statuses[nodeId];
       btn.disabled = !(isDoneStatus(prevStatus) || currentStatus === 'failed' || isDoneStatus(currentStatus) || currentStatus === 'stopped');
+      btn.title = '';
     }
   }
+
+  document.querySelectorAll('.step-disable-btn').forEach((btn) => {
+    const step = Number(btn.dataset.step);
+    const nodeId = String(btn.dataset.nodeId || getNodeIdByStepForCurrentMode(step) || '').trim();
+    const disabled = isNodeTemporarilyDisabled(nodeId);
+    const locked = anyRunning || autoLocked || autoScheduled || statuses[nodeId] === 'running';
+    btn.disabled = locked;
+    btn.classList.toggle('is-active', disabled);
+    btn.setAttribute('aria-pressed', disabled ? 'true' : 'false');
+    btn.title = disabled ? `取消临时禁用节点 ${nodeId}` : `临时禁用节点 ${nodeId}`;
+    btn.setAttribute('aria-label', btn.title);
+  });
 
   document.querySelectorAll('.step-manual-btn').forEach((btn) => {
     const step = Number(btn.dataset.step);
@@ -11439,7 +11493,7 @@ function updateButtonStates() {
     const prevNodeId = currentIndex > 0 ? NODE_IDS[currentIndex - 1] : null;
     const prevStatus = prevNodeId === null ? 'completed' : statuses[prevNodeId];
 
-    if (!SKIPPABLE_NODES.has(nodeId) || anyRunning || autoLocked || autoScheduled || currentStatus === 'running' || isDoneStatus(currentStatus)) {
+    if (!SKIPPABLE_NODES.has(nodeId) || isNodeTemporarilyDisabled(nodeId) || anyRunning || autoLocked || autoScheduled || currentStatus === 'running' || isDoneStatus(currentStatus)) {
       btn.style.display = 'none';
       btn.disabled = true;
       btn.title = '当前不可跳过';
@@ -12342,6 +12396,39 @@ async function handleSkipStep(step) {
   return handleSkipNode(nodeId);
 }
 
+async function handleTemporaryDisableNode(nodeId, disabled) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (!normalizedNodeId || !NODE_IDS.includes(normalizedNodeId)) {
+    throw new Error(`无效节点：${normalizedNodeId || nodeId}`);
+  }
+
+  const response = await chrome.runtime.sendMessage({
+    type: 'TEMPORARY_DISABLE_NODE',
+    source: 'sidepanel',
+    payload: {
+      nodeId: normalizedNodeId,
+      disabled: Boolean(disabled),
+    },
+  });
+
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+
+  syncLatestState({
+    disabledNodeIds: Array.isArray(response?.disabledNodeIds)
+      ? response.disabledNodeIds
+      : getTemporarilyDisabledNodeIds(latestState),
+  });
+  renderStepStatuses();
+  updateButtonStates();
+  showToast(
+    Boolean(response?.disabled) ? `节点 ${normalizedNodeId} 已临时禁用` : `节点 ${normalizedNodeId} 已恢复执行`,
+    Boolean(response?.disabled) ? 'warn' : 'success',
+    2200
+  );
+}
+
 // ============================================================
 // Button Handlers
 // ============================================================
@@ -12354,6 +12441,10 @@ stepsList?.addEventListener('click', async (event) => {
   try {
     const step = Number(btn.dataset.step);
     const nodeId = String(btn.dataset.nodeId || getNodeIdByStepForCurrentMode(step) || '').trim();
+    if (isNodeTemporarilyDisabled(nodeId)) {
+      showToast(`节点 ${nodeId} 已临时禁用，请先恢复后再执行。`, 'warn', 2200);
+      return;
+    }
     if (!(await maybeTakeoverAutoRun(`执行节点 ${nodeId || step}`))) {
       return;
     }

@@ -1043,6 +1043,7 @@ const DEFAULT_STATE = {
   activeRunId: '',
   currentNodeId: '',
   nodeStatuses: { ...DEFAULT_NODE_STATUSES },
+  disabledNodeIds: [],
   runtimeState: runtimeStateHelpers?.buildDefaultRuntimeState?.() || null,
   ...CONTRIBUTION_RUNTIME_DEFAULTS,
   oauthUrl: null, // 运行时抓取到的 OAuth 地址，不要手动预填。
@@ -8486,11 +8487,26 @@ function normalizeStatusMapForNodes(statuses = {}, state = {}) {
 function getFirstUnfinishedNodeId(statuses = {}, stateOverride = null) {
   const state = stateOverride || {};
   const nodeStatuses = normalizeStatusMapForNodes(statuses, state);
+  const isTemporarilyDisabled = (nodeId) => (
+    typeof isNodeTemporarilyDisabled === 'function' && isNodeTemporarilyDisabled(nodeId, state)
+  );
   if (workflowEngine?.getFirstUnfinishedNodeId) {
-    return workflowEngine.getFirstUnfinishedNodeId(nodeStatuses, state);
+    let candidateStatuses = nodeStatuses;
+    if (Array.isArray(state.disabledNodeIds) && state.disabledNodeIds.length) {
+      candidateStatuses = { ...nodeStatuses };
+      for (const nodeId of getNodeIdsForState(state)) {
+        if (isTemporarilyDisabled(nodeId)) {
+          candidateStatuses[nodeId] = 'skipped';
+        }
+      }
+    }
+    return workflowEngine.getFirstUnfinishedNodeId(candidateStatuses, state);
   }
   const nodeIds = getNodeIdsForState(state);
   for (const nodeId of nodeIds) {
+    if (isTemporarilyDisabled(nodeId)) {
+      continue;
+    }
     if (!isStepDoneStatus(nodeStatuses[nodeId] || 'pending')) {
       return nodeId;
     }
@@ -9401,6 +9417,76 @@ async function skipNode(nodeId) {
   }
 
   return { ok: true, nodeId: normalizedNodeId, status: 'skipped' };
+}
+
+function normalizeDisabledNodeIds(value = [], state = {}) {
+  const activeNodeIds = new Set(getNodeIdsForState(state));
+  const source = Array.isArray(value) ? value : [];
+  return Array.from(new Set(
+    source
+      .map((nodeId) => String(nodeId || '').trim())
+      .filter((nodeId) => nodeId && (!activeNodeIds.size || activeNodeIds.has(nodeId)))
+  ));
+}
+
+function isNodeTemporarilyDisabled(nodeId, state = {}) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (!normalizedNodeId) {
+    return false;
+  }
+  return normalizeDisabledNodeIds(state?.disabledNodeIds, state).includes(normalizedNodeId);
+}
+
+async function setNodeTemporarilyDisabled(nodeId, disabled) {
+  const state = await ensureManualInteractionAllowed('临时禁用步骤');
+  const normalizedNodeId = String(nodeId || '').trim();
+  const activeNodeIds = getNodeIdsForState(state);
+
+  if (!normalizedNodeId || !activeNodeIds.includes(normalizedNodeId)) {
+    throw new Error(`无效节点：${normalizedNodeId || nodeId}`);
+  }
+
+  const statuses = normalizeStatusMapForNodes(state.nodeStatuses || {}, state);
+  if (statuses[normalizedNodeId] === 'running') {
+    throw new Error(`节点 ${normalizedNodeId} 正在运行中，不能临时禁用。`);
+  }
+
+  const disabledSet = new Set(normalizeDisabledNodeIds(state.disabledNodeIds, state));
+  if (disabled) {
+    disabledSet.add(normalizedNodeId);
+  } else {
+    disabledSet.delete(normalizedNodeId);
+  }
+
+  const disabledNodeIds = normalizeDisabledNodeIds(Array.from(disabledSet), state);
+  await setState({ disabledNodeIds });
+  await addLog(
+    disabled ? `节点 ${normalizedNodeId} 已临时禁用，自动流程会跳过该节点。` : `节点 ${normalizedNodeId} 已取消临时禁用。`,
+    disabled ? 'warn' : 'info',
+    { nodeId: normalizedNodeId }
+  );
+  return { ok: true, nodeId: normalizedNodeId, disabled: Boolean(disabled), disabledNodeIds };
+}
+
+async function skipTemporarilyDisabledNode(nodeId, state = null) {
+  const normalizedNodeId = String(nodeId || '').trim();
+  const latestState = state || await getState();
+  if (!isNodeTemporarilyDisabled(normalizedNodeId, latestState)) {
+    return false;
+  }
+
+  const currentStatus = String(latestState?.nodeStatuses?.[normalizedNodeId] || 'pending').trim() || 'pending';
+  if (isStepDoneStatus(currentStatus)) {
+    await addLog(`自动运行：节点 ${normalizedNodeId} 已临时禁用，当前状态为 ${currentStatus}，继续后续流程。`, 'info');
+    return true;
+  }
+  if (currentStatus === 'running') {
+    throw new Error(`节点 ${normalizedNodeId} 已临时禁用，但当前仍在运行中。`);
+  }
+
+  await setNodeStatus(normalizedNodeId, 'skipped');
+  await addLog(`自动运行：节点 ${normalizedNodeId} 已临时禁用，本轮跳过执行。`, 'warn', { nodeId: normalizedNodeId });
+  return true;
 }
 
 function throwIfStopped(error = null) {
@@ -10367,6 +10453,9 @@ async function executeNode(nodeId, options = {}) {
   console.log(LOG_PREFIX, `Executing node ${normalizedNodeId}`);
   let state = await getState();
   const step = getStepIdByNodeIdForState(normalizedNodeId, state);
+  if (typeof skipTemporarilyDisabledNode === 'function' && await skipTemporarilyDisabledNode(normalizedNodeId, state)) {
+    return;
+  }
   const authChainClaim = await acquireTopLevelAuthChainExecutionForNode(normalizedNodeId, state);
   if (authChainClaim.joined) {
     return;
@@ -10487,6 +10576,9 @@ async function executeNodeAndWait(nodeId, delayAfter = 2000) {
   }
 
   let executionState = await getState();
+  if (typeof skipTemporarilyDisabledNode === 'function' && await skipTemporarilyDisabledNode(normalizedNodeId, executionState)) {
+    return;
+  }
   const step = getStepIdByNodeIdForState(normalizedNodeId, executionState);
   const preExecutionDelayMs = getAutoRunPreExecutionDelayMsForNode(normalizedNodeId, executionState);
   if (preExecutionDelayMs > 0) {
@@ -11632,6 +11724,9 @@ async function runAutoSequenceFromNodeGraph(startNodeId, context = {}) {
     if (targetIndex < 0) {
       return false;
     }
+    if (typeof skipTemporarilyDisabledNode === 'function' && await skipTemporarilyDisabledNode(nodeId, state)) {
+      return false;
+    }
     const startIndex = nodeIds.indexOf(currentStartNodeId);
     return startIndex < 0 || startIndex <= targetIndex;
   };
@@ -12621,6 +12716,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   isHotmailProvider,
   isLocalhostOAuthCallbackUrl,
   isLuckmailProvider,
+  isNodeTemporarilyDisabled,
   isStopError,
   isTabAlive,
   launchAutoRunTimerPlan,
@@ -12668,6 +12764,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   setPersistentSettings,
   setState,
   setNodeStatus,
+  setNodeTemporarilyDisabled,
   skipAutoRunCountdown,
   skipNode,
   startContributionFlow: (...args) => contributionOAuthManager?.startContributionFlow?.(...args),

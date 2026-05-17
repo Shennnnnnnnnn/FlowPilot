@@ -125,6 +125,7 @@
       isHotmailProvider,
       isLocalhostOAuthCallbackUrl,
       isLuckmailProvider,
+      isNodeTemporarilyDisabled,
       isStopError,
       isTabAlive,
       launchAutoRunTimerPlan,
@@ -159,6 +160,7 @@
       setCurrentMail2925Account,
       setCurrentHotmailAccount,
       setContributionMode,
+      setNodeTemporarilyDisabled,
       setEmailState,
       setEmailStateSilently,
       persistRegistrationEmailState,
@@ -1155,6 +1157,9 @@
           if (message.source === 'sidepanel') {
             await lockAutomationWindowFromMessage(message, sender);
             await ensureManualInteractionAllowed('手动执行节点');
+            if (typeof isNodeTemporarilyDisabled === 'function' && isNodeTemporarilyDisabled(nodeId, requestState)) {
+              throw new Error(`节点 ${nodeId} 已临时禁用，请先取消临时禁用后再执行。`);
+            }
           }
           if (message.source === 'sidepanel') {
             await ensureManualStepPrerequisites(resolvedStep);
@@ -1299,6 +1304,14 @@
             throw new Error('SKIP_NODE 缺少 nodeId。');
           }
           return await skipNode(nodeId);
+        }
+
+        case 'TEMPORARY_DISABLE_NODE': {
+          const nodeId = String(message.nodeId || message.payload?.nodeId || '').trim();
+          if (!nodeId) {
+            throw new Error('TEMPORARY_DISABLE_NODE 缺少 nodeId。');
+          }
+          return await setNodeTemporarilyDisabled(nodeId, Boolean(message.payload?.disabled));
         }
 
         case 'SAVE_SETTING': {

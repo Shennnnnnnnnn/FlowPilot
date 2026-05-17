@@ -550,6 +550,7 @@
               cloudflareDomain: prevState.cloudflareDomain,
               cloudflareDomains: prevState.cloudflareDomains,
               reusablePhoneActivation: prevState.reusablePhoneActivation,
+              disabledNodeIds: prevState.disabledNodeIds,
               autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
               autoRunSessionId: sessionId,
               tabRegistry: {},

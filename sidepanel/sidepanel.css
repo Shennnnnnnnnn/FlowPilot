@@ -2704,6 +2704,12 @@ header {
 .step-row.skipped .step-indicator { border-color: var(--blue); background: var(--blue-soft); }
 .step-row.manual_completed .step-num,
 .step-row.skipped .step-num { color: var(--blue); }
+.step-row.temporarily-disabled { opacity: 0.72; }
+.step-row.temporarily-disabled .step-indicator {
+  border-color: var(--text-muted);
+  background: var(--bg-field);
+}
+.step-row.temporarily-disabled .step-num { color: var(--text-muted); }
 
 /* Step Button */
 .step-btn {
@@ -2730,16 +2736,22 @@ header {
 .step-row.stopped .step-btn { border-color: var(--cyan); color: var(--cyan); }
 .step-row.manual_completed .step-btn,
 .step-row.skipped .step-btn { border-color: rgba(37, 99, 235, 0.25); color: var(--blue); opacity: 0.82; }
+.step-row.temporarily-disabled .step-btn {
+  border-style: dashed;
+  color: var(--text-muted);
+  background: var(--bg-base);
+}
 
 .step-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  width: 48px;
+  width: 74px;
   flex-shrink: 0;
 }
 
+.step-disable-btn,
 .step-manual-btn {
   width: 20px;
   height: 20px;
@@ -2754,11 +2766,18 @@ header {
   cursor: pointer;
   transition: all var(--transition);
 }
+.step-disable-btn:hover:not(:disabled),
 .step-manual-btn:hover:not(:disabled) {
   border-color: var(--blue);
   color: var(--blue);
   background: var(--blue-soft);
 }
+.step-disable-btn.is-active {
+  border-color: var(--orange);
+  color: var(--orange);
+  background: var(--orange-soft);
+}
+.step-disable-btn:disabled,
 .step-manual-btn:disabled {
   color: var(--text-muted);
   border-color: var(--border-subtle);
